@@ -5,6 +5,8 @@ tree, plus a documented 150-point build.
 
 ![version](https://img.shields.io/badge/atlas-3.30.0-e3bf63)
 
+**Live:** https://trigun0x2.github.io/atlast-tree-3.30/
+
 ## Running it
 
 The viewer is a single static page with no build step and no dependencies.
@@ -15,6 +17,18 @@ opened as a `file://` URL:
 python3 -m http.server 8000
 # then open http://localhost:8000
 ```
+
+## Deployment
+
+`.github/workflows/pages.yml` publishes the repo root to GitHub Pages on every
+push to `main`. The workflow calls `actions/configure-pages` with
+`enablement: true`, so it switches Pages on by itself the first time it runs —
+no Settings visit needed, as long as Actions is allowed to run on the repo.
+
+If you would rather skip Actions entirely, the site is plain static files at
+the root, so **Settings → Pages → Source: Deploy from a branch → `main` /
+(root)** serves it just as well. `.nojekyll` is present either way so the files
+are published verbatim rather than run through Jekyll.
 
 ## Using it
 
@@ -36,6 +50,10 @@ allocated stats — numeric lines with the same wording are summed.
 
 A 150-point budget is enforced: a click that would exceed it is refused and the
 counter flashes.
+
+The tree **starts empty** — only the start node is allocated, so you can plan
+from scratch. **Load 150-point build** fills in the build documented below, and
+**Clear** empties it again.
 
 ## Data
 
@@ -105,5 +123,6 @@ Essence, Repressed Emotion, Supernatural Genesis, Unbecoming Emotion
 
 **Magic Monsters (2)** — Deep Bloodlines, Group Solidarity
 
-Load it with **Load 150-point build** in the left panel; **Copy ids** exports
-the current allocation as a comma-separated id list.
+It is not allocated by default. Load it with **Load 150-point build** in the
+left panel; **Copy ids** exports the current allocation as a comma-separated id
+list.
