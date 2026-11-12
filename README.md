@@ -20,15 +20,23 @@ python3 -m http.server 8000
 
 ## Deployment
 
-`.github/workflows/pages.yml` publishes the repo root to GitHub Pages on every
-push to `main`. The workflow calls `actions/configure-pages` with
-`enablement: true`, so it switches Pages on by itself the first time it runs —
-no Settings visit needed, as long as Actions is allowed to run on the repo.
+**Pages has to be switched on by hand once.** A workflow cannot do it for you:
+creating the Pages site needs admin rights that the Actions `GITHUB_TOKEN`
+does not carry, so `configure-pages` with `enablement: true` fails with
+`Resource not accessible by integration`. Pick either route below — both need
+exactly one visit to **Settings → Pages**.
 
-If you would rather skip Actions entirely, the site is plain static files at
-the root, so **Settings → Pages → Source: Deploy from a branch → `main` /
-(root)** serves it just as well. `.nojekyll` is present either way so the files
-are published verbatim rather than run through Jekyll.
+**Deploy from a branch (simplest).** Set **Source: Deploy from a branch →
+`main` / (root)**. The site is plain static files at the repo root, so GitHub
+serves it directly — no Actions run, nothing to maintain. If you take this
+route, `.github/workflows/pages.yml` is redundant and can be deleted.
+
+**Deploy with Actions.** Set **Source: GitHub Actions**, then re-run the
+workflow. `.github/workflows/pages.yml` uploads the repo root on every push to
+`main`. Worth keeping only if a build step is added later.
+
+`.nojekyll` is present either way, so the files are published verbatim rather
+than run through Jekyll.
 
 ## Using it
 

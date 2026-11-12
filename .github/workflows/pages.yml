@@ -24,11 +24,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # enablement: true turns Pages on for the repo if it is not already,
-      # so this works without visiting Settings first.
+      # Pages must already be enabled with Source = GitHub Actions.
+      # (enablement: true is deliberately NOT set — creating the Pages site
+      # needs admin rights the workflow GITHUB_TOKEN does not have, and fails
+      # with "Resource not accessible by integration".)
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       # The site is plain static files at the repo root — nothing to build.
       - uses: actions/upload-pages-artifact@v3
