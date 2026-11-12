@@ -1,0 +1,801 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Atlas Tree Planner</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: full-bleed canvas map, floating glass panels docked left (navigate) and right (build), HUD rail top */
+:root{
+  --void:#080a10;
+  --ink:#0d1018;
+  --panel:rgba(13,16,24,.9);
+  --edge:rgba(141,152,178,.16);
+  --fg:#e7e3d7;
+  --muted:#8d97ad;
+  --dim:#5d6578;
+  --gold:#e3bf63;
+  --gold-deep:#a8822c;
+  --path:#6fa8cc;
+  --warn:#d2694b;
+  --ok:#86b06a;
+  --display:"Marcellus",Georgia,"Times New Roman",serif;
+  --ui:"Inter",system-ui,-apple-system,Segoe UI,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--void);color:var(--fg);font-family:var(--ui);overflow:hidden;-webkit-tap-highlight-color:transparent}
+#stage{position:fixed;inset:0;overflow:hidden}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+canvas.drag{cursor:grabbing}
+
+/* HUD */
+.hud{position:absolute;top:0;left:0;right:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+  padding-top:calc(12px + env(safe-area-inset-top,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  pointer-events:none;z-index:6}
+.hud > *{pointer-events:auto}
+.brand{display:flex;align-items:baseline;gap:10px;background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:8px 14px;backdrop-filter:blur(8px)}
+.brand h1{font-family:var(--display);font-size:17px;font-weight:400;margin:0;letter-spacing:.02em;color:var(--fg)}
+.brand .ver{font-size:11px;color:var(--dim);letter-spacing:.09em;text-transform:uppercase}
+.counter{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:8px 14px;backdrop-filter:blur(8px)}
+.counter .num{font-family:var(--display);font-size:20px;line-height:1;color:var(--gold);font-variant-numeric:tabular-nums}
+.counter .of{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.counter .lbl{font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--dim)}
+.counter.full .num{color:var(--ok)}
+.counter.flash{animation:flash .5s ease}
+@keyframes flash{0%,100%{background:var(--panel)}40%{background:rgba(210,105,75,.3)}}
+
+/* Panels */
+.panel{position:absolute;top:66px;bottom:16px;width:286px;background:var(--panel);border:1px solid var(--edge);border-radius:12px;
+  backdrop-filter:blur(10px);display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.panel.left{left:max(16px,env(safe-area-inset-left,0px))}
+.panel.right{right:max(16px,env(safe-area-inset-right,0px))}
+.panel.hidden{display:none}
+.ptabs{display:flex;border-bottom:1px solid var(--edge);flex:0 0 auto}
+.ptabs button{flex:1;background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);font-family:var(--ui);
+  font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:11px 4px;cursor:pointer}
+.ptabs button[aria-selected="true"]{color:var(--gold);border-bottom-color:var(--gold-deep)}
+.ptabs button:focus-visible{outline:2px solid var(--path);outline-offset:-2px}
+.pbody{overflow-y:auto;overscroll-behavior:contain;padding:12px;flex:1 1 auto;min-width:0}
+.pbody::-webkit-scrollbar{width:8px}
+.pbody::-webkit-scrollbar-thumb{background:rgba(141,152,178,.25);border-radius:4px}
+
+.field{display:flex;gap:6px;margin-bottom:10px}
+input[type=search]{flex:1;min-width:0;background:rgba(0,0,0,.35);border:1px solid var(--edge);border-radius:7px;color:var(--fg);
+  font-family:var(--ui);font-size:13px;padding:8px 10px}
+input[type=search]:focus{outline:none;border-color:var(--gold-deep)}
+.btn{background:rgba(141,152,178,.1);border:1px solid var(--edge);color:var(--fg);font-family:var(--ui);font-size:12px;
+  border-radius:7px;padding:7px 11px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:rgba(227,191,99,.14);border-color:var(--gold-deep)}
+.btn:focus-visible{outline:2px solid var(--path);outline-offset:1px}
+.btn.primary{background:rgba(168,130,44,.22);border-color:var(--gold-deep);color:var(--gold)}
+.btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+
+h2.sec{font-family:var(--ui);font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--dim);
+  margin:16px 0 7px;font-weight:600}
+h2.sec:first-child{margin-top:0}
+.hint{font-size:11.5px;line-height:1.5;color:var(--muted);margin:0 0 12px}
+.hint kbd{font-family:var(--ui);font-size:10px;background:rgba(141,152,178,.16);border:1px solid var(--edge);
+  border-radius:4px;padding:1px 5px;color:var(--fg)}
+
+.rowlist{display:flex;flex-direction:column;gap:2px}
+.row{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;border-radius:6px;
+  color:var(--fg);font-family:var(--ui);font-size:12.5px;padding:6px 8px;cursor:pointer;line-height:1.3}
+.row:hover{background:rgba(141,152,178,.1)}
+.row:focus-visible{outline:2px solid var(--path);outline-offset:-2px}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .ct{font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+.row .ct.on{color:var(--gold)}
+.dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;background:var(--dim)}
+.dot.notable{background:var(--gold);width:9px;height:9px}
+.dot.keystone{background:#fff;width:10px;height:10px;box-shadow:0 0 0 2px var(--gold-deep)}
+.dot.alloc{background:var(--gold)}
+.dot.wormhole{background:var(--path)}
+
+.eff{display:flex;gap:8px;padding:5px 0;border-bottom:1px solid rgba(141,152,178,.08);font-size:12px;line-height:1.45}
+.eff .v{flex:0 0 auto;color:var(--gold);font-variant-numeric:tabular-nums;font-weight:500;min-width:42px;text-align:right}
+.eff .t{flex:1;min-width:0;color:#c9c6bc}
+.empty{font-size:12px;color:var(--dim);font-style:italic}
+
+/* zoom controls */
+.zoom{position:absolute;left:max(16px,env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));
+  display:flex;gap:6px;z-index:6}
+.panel.left:not(.hidden) ~ .zoom{left:calc(max(16px,env(safe-area-inset-left,0px)) + 298px)}
+.zoom button{width:34px;height:34px;padding:0;font-size:15px;line-height:1;background:var(--panel);border:1px solid var(--edge);
+  color:var(--fg);border-radius:8px;cursor:pointer;backdrop-filter:blur(8px)}
+.zoom button.wide{width:auto;padding:0 12px;font-size:11.5px;letter-spacing:.06em}
+.zoom button:hover{border-color:var(--gold-deep);color:var(--gold)}
+
+/* tooltip */
+.tip{position:absolute;z-index:20;max-width:330px;background:#0a0d14;border:1px solid rgba(168,130,44,.5);
+  border-radius:9px;padding:11px 13px;pointer-events:none;box-shadow:0 14px 40px rgba(0,0,0,.6)}
+.tip .tname{font-family:var(--display);font-size:15px;line-height:1.2;color:var(--gold);margin:0 0 3px}
+.tip .tmeta{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin:0 0 8px}
+.tip .tstat{font-size:12.5px;line-height:1.5;color:#d8d5cb;margin:0 0 6px;white-space:pre-line}
+.tip .tvar{font-size:12px;line-height:1.5;color:#c6c3ba;margin:0 0 6px;padding-left:9px;border-left:2px solid var(--gold-deep);white-space:pre-line}
+.tip .trem{font-size:11.5px;line-height:1.45;color:var(--muted);margin:0 0 6px;white-space:pre-line}
+.tip .tflav{font-size:11.5px;line-height:1.45;color:var(--dim);font-style:italic;margin:6px 0 0;white-space:pre-line;
+  border-top:1px solid rgba(141,152,178,.14);padding-top:6px}
+.tip .tfoot{font-size:11px;margin-top:8px;padding-top:7px;border-top:1px solid rgba(141,152,178,.14);
+  display:flex;justify-content:space-between;gap:10px;color:var(--muted)}
+.tip .tfoot b{color:var(--path);font-weight:500}
+.tip .tfoot b.on{color:var(--gold)}
+
+#toast{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(22px + env(safe-area-inset-bottom,0px));z-index:30;
+  background:rgba(8,10,16,.96);border:1px solid rgba(210,105,75,.5);border-radius:8px;padding:9px 15px;font-size:12.5px;color:var(--fg)}
+#loading{position:absolute;inset:0;display:grid;place-items:center;background:var(--void);z-index:40;gap:10px}
+#loading[hidden]{display:none}
+#loading p{font-family:var(--display);font-size:14px;color:var(--muted);letter-spacing:.08em}
+
+.mobtabs{display:none}
+@media (max-width:820px){
+  .panel{top:auto;bottom:0;left:0;right:0;width:auto;max-height:52%;border-radius:12px 12px 0 0;border-bottom:0;
+    padding-bottom:env(safe-area-inset-bottom,0px)}
+  .panel.left,.panel.right{left:0;right:0}
+  .zoom{bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+  .panel.left:not(.hidden) ~ .zoom{left:max(16px,env(safe-area-inset-left,0px))}
+  .panel:not(.hidden) ~ .zoom{display:none}
+  .mobtabs{display:flex;gap:6px}
+  .brand h1{font-size:15px}
+  .brand .ver{display:none}
+  .tip{max-width:min(330px,calc(100vw - 32px))}
+}
+</style>
+
+<div id="stage">
+  <canvas id="cv"></canvas>
+
+  <div class="hud">
+    <div class="brand"><h1>Atlas Tree</h1><span class="ver">3.30.0</span></div>
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <div class="mobtabs">
+        <button class="btn" id="mNav">Find</button>
+        <button class="btn" id="mBuild">Build</button>
+      </div>
+      <div class="counter" id="counter">
+        <div><div class="num" id="ptsUsed">0</div><div class="lbl">points</div></div>
+        <div class="of">of <span id="ptsMax">150</span></div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="panel left" id="panelL">
+    <div class="ptabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="find">Find</button>
+      <button role="tab" aria-selected="false" data-tab="regions">Regions</button>
+      <button class="btn" id="closeL" style="flex:0 0 auto;border:0;border-radius:0;background:none;padding:0 12px">&times;</button>
+    </div>
+    <div class="pbody" id="tab-find">
+      <div class="field">
+        <input type="search" id="q" placeholder="Search nodes and effects" autocomplete="off" spellcheck="false">
+      </div>
+      <p class="hint">Hover a node for its effects. Click an unallocated node to take the cheapest path to it; click an allocated node to refund it. Scroll to zoom, drag to pan.</p>
+      <h2 class="sec">Plan</h2>
+      <div class="btnrow">
+        <button class="btn primary" id="loadBuild">Load 150-point build</button>
+        <button class="btn" id="clearBuild">Clear</button>
+        <button class="btn" id="copyBuild">Copy ids</button>
+      </div>
+      <h2 class="sec" id="resHead">Results</h2>
+      <div class="rowlist" id="results"></div>
+    </div>
+    <div class="pbody" id="tab-regions" hidden>
+      <p class="hint">38 regions, named by their mastery marker. The count is allocated / total nodes.</p>
+      <div class="rowlist" id="regions"></div>
+    </div>
+  </aside>
+
+  <aside class="panel right" id="panelR">
+    <div class="ptabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="build">Build</button>
+      <button role="tab" aria-selected="false" data-tab="effects">Effects</button>
+      <button class="btn" id="closeR" style="flex:0 0 auto;border:0;border-radius:0;background:none;padding:0 12px">&times;</button>
+    </div>
+    <div class="pbody" id="tab-build"></div>
+    <div class="pbody" id="tab-effects" hidden></div>
+  </aside>
+
+  <div class="zoom">
+    <button id="zOut" title="Zoom out">&minus;</button>
+    <button id="zIn" title="Zoom in">+</button>
+    <button id="zFit" class="wide" title="Fit whole tree">Fit</button>
+    <button id="zStart" class="wide" title="Centre on the start node">Start</button>
+  </div>
+
+  <div class="tip" id="tip" hidden></div>
+  <div id="toast" hidden></div>
+  <div id="loading"><p>Loading the Atlas&hellip;</p></div>
+</div>
+
+<script>
+(async function(){
+  "use strict";
+  const $ = s => document.querySelector(s);
+  const cv = $("#cv"), ctx = cv.getContext("2d");
+
+  /* ---------- data ---------- */
+  let D;
+  try { D = await fetch("atlas.json").then(r => r.json()); }
+  catch (e) { $("#loading").innerHTML = "<p>Could not load atlas.json</p>"; return; }
+
+  const N = D.nodes, START = D.start, MAX = D.totalPoints;
+  const IDS = Object.keys(N);
+  const ALLOCATABLE = IDS.filter(id => N[id].t !== "mastery");
+  const GROUPS = D.groups, ORB = D.orbitRadii, FR = D.frames;
+  $("#ptsMax").textContent = MAX;
+
+  // undirected edge list, de-duplicated; arcs flagged
+  const arcKey = new Map();
+  for (const a of D.arcs) {
+    const k = a[0] < a[1] ? a[0] + "|" + a[1] : a[1] + "|" + a[0];
+    arcKey.set(k, { cx: a[3], cy: a[4], r: ORB[a[2]] });
+  }
+  const EDGES = [];
+  const seenEdge = new Set();
+  for (const id of ALLOCATABLE) {
+    for (const o of (N[id].c || [])) {
+      const k = id < o ? id + "|" + o : o + "|" + id;
+      if (seenEdge.has(k)) continue;
+      seenEdge.add(k);
+      const a = N[id], b = N[o];
+      if (a.t === "wormhole" && b.t === "wormhole") { EDGES.push({ a: id, b: o, hidden: true }); continue; }
+      let arc = arcKey.get(k) || null;
+      if (!arc && a.g === b.g && a.o === b.o && a.o > 0) arc = { cx: GROUPS[a.g][0], cy: GROUPS[a.g][1], r: ORB[a.o] };
+      EDGES.push({ a: id, b: o, arc });
+    }
+  }
+
+  const ADJ = {};
+  for (const id of ALLOCATABLE) ADJ[id] = N[id].c || [];
+
+  const REGIONS = {};
+  for (const id of IDS) {
+    const r = N[id].R || "Unassigned";
+    (REGIONS[r] = REGIONS[r] || { ids: [], bx: [1e9, 1e9, -1e9, -1e9] }).ids.push(id);
+    const b = REGIONS[r].bx, n = N[id];
+    b[0] = Math.min(b[0], n.x); b[1] = Math.min(b[1], n.y);
+    b[2] = Math.max(b[2], n.x); b[3] = Math.max(b[3], n.y);
+  }
+
+  /* ---------- assets ---------- */
+  const IMG = {};
+  const loadImg = (k, src) => new Promise(res => {
+    const i = new Image();
+    i.onload = () => { IMG[k] = i; res(); };
+    i.onerror = () => res();
+    i.src = src;
+  });
+  await Promise.all([
+    loadImg("skills", "assets/atlas-skills-4.webp"),
+    loadImg("skillsOff", "assets/atlas-skills-disabled-4.webp"),
+    loadImg("mastery", "assets/atlas-mastery-4.webp"),
+    loadImg("frame", "assets/atlas-frame-4.webp"),
+    loadImg("gbg", "assets/atlas-group-background-4.webp"),
+    loadImg("tile", "assets/background-4.png")
+  ]);
+  let tilePat = null;
+  if (IMG.tile) tilePat = ctx.createPattern(IMG.tile, "repeat");
+
+  /* ---------- state ---------- */
+  const alloc = new Set([START]);
+  let dist = {}, prev = {}, frontier = new Set();
+  let hover = null, highlight = new Set(), hoverPath = new Set();
+  const cam = { x: 0, y: 0, s: 0.05 };
+  let W = 0, H = 0, dpr = 1;
+
+  const SPRITE_SCALE = 2;           // export sprites are cut at zoom 0.5
+  const HIT = { normal: 42, notable: 64, keystone: 86, wormhole: 86, mastery: 72, start: 100 };
+
+  function recompute() {
+    // BFS over unallocated nodes starting from the allocated frontier
+    dist = {}; prev = {}; frontier = new Set();
+    const q = [];
+    for (const a of alloc) { dist[a] = 0; q.push(a); }
+    for (let i = 0; i < q.length; i++) {
+      const u = q[i];
+      for (const v of (ADJ[u] || [])) {
+        if (dist[v] === undefined) { dist[v] = dist[u] + 1; prev[v] = u; q.push(v); }
+      }
+    }
+    for (const a of alloc) for (const v of (ADJ[a] || [])) if (!alloc.has(v)) frontier.add(v);
+    renderPanels();
+  }
+  const pathTo = id => {
+    const p = [];
+    let u = id;
+    while (u !== undefined && !alloc.has(u)) { p.push(u); u = prev[u]; }
+    return p.reverse();
+  };
+  const used = () => alloc.size - 1;
+
+  /* ---------- canvas ---------- */
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    draw();
+  }
+  const toWorld = (sx, sy) => ({ x: (sx - W / 2) / cam.s + cam.x, y: (sy - H / 2) / cam.s + cam.y });
+
+  function fitTo(b, pad) {
+    pad = pad || 1.08;
+    const w = Math.max(b[2] - b[0], 400), h = Math.max(b[3] - b[1], 400);
+    cam.x = (b[0] + b[2]) / 2; cam.y = (b[1] + b[3]) / 2;
+    cam.s = Math.min(W / (w * pad), H / (h * pad));
+    draw();
+  }
+  function flyTo(x, y, s) {
+    cam.x = x; cam.y = y;
+    if (s) cam.s = Math.max(0.02, Math.min(0.9, s));
+    draw();
+  }
+
+  function frameName(t, state) {
+    if (t === "keystone") return "KeystoneFrame" + state;
+    if (t === "wormhole") return "WormholeFrame" + state;
+    if (t === "notable") return "NotableFrame" + state;
+    return state === "Allocated" ? "PSSkillFrameActive" : state === "CanAllocate" ? "PSSkillFrameHighlighted" : "PSSkillFrame";
+  }
+  function blit(img, c, x, y, mul) {
+    if (!img) return;
+    const w = c[2] * SPRITE_SCALE * (mul || 1), h = c[3] * SPRITE_SCALE * (mul || 1);
+    ctx.drawImage(img, c[0], c[1], c[2], c[3], x - w / 2, y - h / 2, w, h);
+  }
+
+  let raf = 0;
+  const draw = () => { if (!raf) raf = requestAnimationFrame(paint); };
+
+  function paint() {
+    raf = 0;
+    const s = cam.s;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#080a10";
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.setTransform(s * dpr, 0, 0, s * dpr, (W / 2 - cam.x * s) * dpr, (H / 2 - cam.y * s) * dpr);
+
+    const vis = { x0: cam.x - W / 2 / s, y0: cam.y - H / 2 / s, x1: cam.x + W / 2 / s, y1: cam.y + H / 2 / s };
+    const inView = (x, y, m) => x > vis.x0 - m && x < vis.x1 + m && y > vis.y0 - m && y < vis.y1 + m;
+
+    // textured ground
+    if (tilePat) {
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      const k = 0.7 / s;
+      ctx.scale(k, k);
+      ctx.fillStyle = tilePat;
+      ctx.fillRect(vis.x0 / k - 200, vis.y0 / k - 200, (vis.x1 - vis.x0) / k + 400, (vis.y1 - vis.y0) / k + 400);
+      ctx.restore();
+    }
+
+    // group backgrounds
+    if (IMG.gbg) {
+      ctx.globalAlpha = s < 0.05 ? 0.38 : 0.62;
+      for (const g of D.groupBg) {
+        if (!inView(g[0], g[1], g[4] * SPRITE_SCALE)) continue;
+        blit(IMG.gbg, [g[2], g[3], g[4], g[5]], g[0], g[1]);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // connections
+    const lw = Math.max(5, 2.2 / s);
+    ctx.lineCap = "round";
+    for (let pass = 0; pass < 3; pass++) {
+      ctx.lineWidth = pass === 0 ? lw : lw * 1.5;
+      ctx.strokeStyle = pass === 0 ? "rgba(120,131,156,.42)" : pass === 1 ? "#a8822c" : "#6fa8cc";
+      for (const e of EDGES) {
+        if (e.hidden) continue;
+        const A = N[e.a], B = N[e.b];
+        const both = alloc.has(e.a) && alloc.has(e.b);
+        const onPath = hoverPath.has(e.a) && hoverPath.has(e.b);
+        if (pass === 0 && (both || onPath)) continue;
+        if (pass === 1 && !both) continue;
+        if (pass === 2 && (!onPath || both)) continue;
+        if (!inView(Math.min(A.x, B.x), Math.min(A.y, B.y), Math.abs(A.x - B.x) + Math.abs(A.y - B.y) + 300)) continue;
+        ctx.beginPath();
+        if (e.arc) {
+          let a1 = Math.atan2(A.y - e.arc.cy, A.x - e.arc.cx);
+          let a2 = Math.atan2(B.y - e.arc.cy, B.x - e.arc.cx);
+          let d = a2 - a1;
+          while (d > Math.PI) d -= 2 * Math.PI;
+          while (d < -Math.PI) d += 2 * Math.PI;
+          ctx.arc(e.arc.cx, e.arc.cy, e.arc.r, a1, a1 + d, d < 0);
+        } else {
+          ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y);
+        }
+        ctx.stroke();
+      }
+    }
+
+    // nodes
+    const dots = s < 0.055;
+    for (const id of IDS) {
+      const n = N[id];
+      if (!inView(n.x, n.y, 400)) continue;
+      const isAlloc = alloc.has(id);
+      const isMast = n.t === "mastery";
+
+      if (n.t === "start") {
+        const c = D.startSprite;
+        if (IMG.gbg) blit(IMG.gbg, [c.x, c.y, c.w, c.h], n.x, n.y);
+        continue;
+      }
+      if (dots && !isMast) {
+        const r = (n.t === "keystone" ? 7 : n.t === "notable" ? 5 : n.t === "wormhole" ? 6 : 3.2) / s;
+        ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 6.2832);
+        ctx.fillStyle = isAlloc ? (n.t === "normal" ? "#e3bf63" : "#fff0c0")
+          : hoverPath.has(id) ? "#6fa8cc" : (n.t === "normal" ? "#60697e" : "#9aa2b6");
+        ctx.fill();
+        if (highlight.has(id)) { ctx.lineWidth = 2.5 / s; ctx.strokeStyle = "#6fa8cc"; ctx.stroke(); }
+        continue;
+      }
+      if (isMast) {
+        if (n.i) { ctx.globalAlpha = 0.9; blit(IMG.mastery, n.i, n.x, n.y); ctx.globalAlpha = 1; }
+        continue;
+      }
+      // icon
+      if (n.i) blit(isAlloc ? IMG.skills : IMG.skillsOff, n.i, n.x, n.y);
+      // frame
+      const state = isAlloc ? "Allocated" : frontier.has(id) ? "CanAllocate" : "Unallocated";
+      const fc = FR[frameName(n.t, state)];
+      if (fc && IMG.frame) blit(IMG.frame, [fc.x, fc.y, fc.w, fc.h], n.x, n.y);
+      // markers
+      if (hoverPath.has(id) && !isAlloc) {
+        ctx.beginPath(); ctx.arc(n.x, n.y, HIT[n.t] * 0.78, 0, 6.2832);
+        ctx.lineWidth = 7 / s; ctx.strokeStyle = "#6fa8cc"; ctx.stroke();
+      }
+      if (highlight.has(id)) {
+        ctx.beginPath(); ctx.arc(n.x, n.y, HIT[n.t] * 0.95, 0, 6.2832);
+        ctx.lineWidth = 8 / s; ctx.strokeStyle = "rgba(111,168,204,.95)"; ctx.stroke();
+      }
+    }
+    if (hover && N[hover]) {
+      const n = N[hover];
+      ctx.beginPath(); ctx.arc(n.x, n.y, HIT[n.t] * 0.9, 0, 6.2832);
+      ctx.lineWidth = Math.max(6, 3 / cam.s); ctx.strokeStyle = "#e3bf63"; ctx.stroke();
+    }
+  }
+
+  /* ---------- hit testing ---------- */
+  function pick(sx, sy) {
+    const w = toWorld(sx, sy);
+    const slack = Math.max(1, 14 / cam.s);
+    let best = null, bd = Infinity;
+    for (const id of IDS) {
+      const n = N[id];
+      const r = HIT[n.t] + slack;
+      const dx = n.x - w.x, dy = n.y - w.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < r * r && d2 < bd) { bd = d2; best = id; }
+    }
+    return best;
+  }
+
+  /* ---------- interaction ---------- */
+  let drag = null, moved = false, pinch = null;
+  const pts = new Map();
+  const pinchDist = () => {
+    const a = [...pts.values()];
+    return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+  };
+  const pinchMid = () => {
+    const a = [...pts.values()];
+    return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 };
+  };
+  cv.addEventListener("pointerdown", ev => {
+    cv.setPointerCapture(ev.pointerId);
+    pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (pts.size === 2) { pinch = { d: pinchDist(), s: cam.s }; drag = null; moved = true; return; }
+    drag = { x: ev.clientX, y: ev.clientY, cx: cam.x, cy: cam.y };
+    moved = false;
+    cv.classList.add("drag");
+  });
+  cv.addEventListener("pointermove", ev => {
+    const r = cv.getBoundingClientRect();
+    if (pts.has(ev.pointerId)) pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (pinch && pts.size >= 2) {
+      const mid = pinchMid();
+      const sx = mid.x - r.left, sy = mid.y - r.top;
+      const before = toWorld(sx, sy);
+      cam.s = Math.max(0.018, Math.min(1.1, pinch.s * (pinchDist() / pinch.d)));
+      const after = toWorld(sx, sy);
+      cam.x += before.x - after.x; cam.y += before.y - after.y;
+      hideTip(); draw();
+      return;
+    }
+    if (drag) {
+      const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+      cam.x = drag.cx - dx / cam.s; cam.y = drag.cy - dy / cam.s;
+      hideTip(); draw();
+      return;
+    }
+    const id = pick(ev.clientX - r.left, ev.clientY - r.top);
+    setHover(id, ev.clientX - r.left, ev.clientY - r.top);
+  });
+  const endDrag = ev => {
+    if (ev) pts.delete(ev.pointerId);
+    if (pts.size < 2) pinch = null;
+    if (!drag) return;
+    const wasMoved = moved;
+    drag = null; cv.classList.remove("drag");
+    if (!wasMoved && ev) {
+      const r = cv.getBoundingClientRect();
+      const id = pick(ev.clientX - r.left, ev.clientY - r.top);
+      if (id) toggle(id);
+      if (ev.pointerType === "touch" && id) setHover(id, ev.clientX - r.left, ev.clientY - r.top);
+    }
+  };
+  cv.addEventListener("pointerup", endDrag);
+  cv.addEventListener("pointercancel", ev => { pts.delete(ev.pointerId); pinch = null; drag = null; cv.classList.remove("drag"); });
+  cv.addEventListener("pointerleave", () => { if (!drag) { hover = null; hoverPath = new Set(); hideTip(); draw(); } });
+  cv.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const r = cv.getBoundingClientRect();
+    const sx = ev.clientX - r.left, sy = ev.clientY - r.top;
+    const before = toWorld(sx, sy);
+    const f = Math.exp(-ev.deltaY * 0.0014);
+    cam.s = Math.max(0.018, Math.min(1.1, cam.s * f));
+    const after = toWorld(sx, sy);
+    cam.x += before.x - after.x; cam.y += before.y - after.y;
+    hideTip(); draw();
+  }, { passive: false });
+  cv.addEventListener("dblclick", ev => {
+    const r = cv.getBoundingClientRect();
+    const w = toWorld(ev.clientX - r.left, ev.clientY - r.top);
+    flyTo(w.x, w.y, cam.s * 2);
+  });
+
+  function toggle(id) {
+    const n = N[id];
+    if (n.t === "mastery" || id === START) return;
+    if (alloc.has(id)) {
+      alloc.delete(id);
+      // drop anything no longer reachable from the start
+      const keep = new Set([START]), q = [START];
+      for (let i = 0; i < q.length; i++) for (const v of (ADJ[q[i]] || [])) if (alloc.has(v) && !keep.has(v)) { keep.add(v); q.push(v); }
+      for (const a of [...alloc]) if (!keep.has(a)) alloc.delete(a);
+      recompute(); hoverPath = new Set(); draw(); refreshTip();
+      return;
+    }
+    const p = pathTo(id);
+    if (!p.length) { toast("No path from the allocated tree."); return; }
+    if (used() + p.length > MAX) {
+      toast("That needs " + p.length + " point" + (p.length > 1 ? "s" : "") + "; " + (MAX - used()) + " left.");
+      const c = $("#counter"); c.classList.remove("flash"); void c.offsetWidth; c.classList.add("flash");
+      return;
+    }
+    for (const x of p) alloc.add(x);
+    recompute(); hoverPath = new Set(); draw(); refreshTip();
+  }
+
+  /* ---------- tooltip ---------- */
+  const tip = $("#tip");
+  let tipAt = { x: 0, y: 0 };
+  function setHover(id, sx, sy) {
+    tipAt = { x: sx, y: sy };
+    if (id === hover) { if (id) placeTip(); return; }
+    hover = id;
+    hoverPath = new Set();
+    if (id && !alloc.has(id) && N[id].t !== "mastery") {
+      const p = pathTo(id);
+      hoverPath = new Set(p);
+      if (p.length && prev[p[0]] !== undefined) hoverPath.add(prev[p[0]]);
+    }
+    draw();
+    refreshTip();
+  }
+  const esc = t => String(t).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const clean = t => esc(t).replace(/\[([^|\]]+)\|([^\]]+)\]/g, "$2").replace(/\[([^\]]+)\]/g, "$1");
+  const TYPE = { normal: "Passive", notable: "Notable", keystone: "Keystone", mastery: "Region marker", wormhole: "Gateway", start: "Start" };
+
+  function refreshTip() {
+    if (!hover) { hideTip(); return; }
+    const n = N[hover];
+    let h = '<p class="tname">' + (clean(n.n) || "Atlas Start") + '</p>';
+    h += '<p class="tmeta">' + TYPE[n.t] + (n.R && n.t !== "start" && n.t !== "mastery" ? " &middot; " + clean(n.R) : "") + '</p>';
+    for (const s of (n.s || [])) h += '<p class="tstat">' + clean(s) + '</p>';
+    if (n.v) {
+      h += '<p class="tmeta" style="margin-bottom:5px">Choose one</p>';
+      for (const v of n.v) h += '<p class="tvar">' + v.map(clean).join("\n") + '</p>';
+    }
+    for (const s of (n.r || [])) h += '<p class="trem">' + clean(s) + '</p>';
+    if (n.t === "mastery") h += '<p class="trem">Marks this region on the Atlas. Not allocatable.</p>';
+    if (n.f && n.f.length) h += '<p class="tflav">' + n.f.map(clean).join("\n") + '</p>';
+    if (n.t !== "mastery" && n.t !== "start") {
+      const cost = hoverPath.size;
+      h += '<p class="tfoot"><span>' + (alloc.has(hover)
+        ? '<b class="on">Allocated</b>'
+        : (cost ? 'Costs <b>' + cost + '</b> point' + (cost > 1 ? "s" : "") + " from here" : "Unreachable"))
+        + '</span><span style="color:#5d6578">#' + hover + '</span></p>';
+    }
+    tip.innerHTML = h;
+    tip.hidden = false;
+    placeTip();
+  }
+  function placeTip() {
+    const r = cv.getBoundingClientRect();
+    const w = tip.offsetWidth, hh = tip.offsetHeight;
+    let x = tipAt.x + 20, y = tipAt.y + 16;
+    if (x + w > r.width - 8) x = Math.max(8, tipAt.x - w - 20);
+    if (y + hh > r.height - 8) y = Math.max(8, r.height - hh - 8);
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  }
+  const hideTip = () => { tip.hidden = true; };
+
+  let toastT = 0;
+  function toast(m) {
+    const t = $("#toast");
+    t.textContent = m; t.hidden = false;
+    clearTimeout(toastT);
+    toastT = setTimeout(() => { t.hidden = true; }, 2600);
+  }
+
+  /* ---------- panels ---------- */
+  function renderPanels() {
+    $("#ptsUsed").textContent = used();
+    $("#counter").classList.toggle("full", used() === MAX);
+
+    // build tab
+    const picks = [...alloc].filter(id => id !== START && (N[id].t === "notable" || N[id].t === "keystone" || N[id].t === "wormhole"));
+    const byReg = {};
+    for (const id of alloc) {
+      if (id === START) continue;
+      const r = N[id].R || "Unassigned";
+      byReg[r] = (byReg[r] || 0) + 1;
+    }
+    let h = '<h2 class="sec">Spent by region</h2><div class="rowlist">';
+    const regOrder = Object.keys(byReg).sort((a, b) => byReg[b] - byReg[a] || a.localeCompare(b));
+    if (!regOrder.length) h += '<p class="empty">Nothing allocated yet.</p>';
+    for (const r of regOrder) {
+      h += '<button class="row" data-region="' + esc(r) + '"><span class="dot alloc"></span><span class="nm">' + clean(r) +
+        '</span><span class="ct on">' + byReg[r] + '</span></button>';
+    }
+    h += '</div><h2 class="sec">Notables and keystones &middot; ' + picks.length + '</h2><div class="rowlist">';
+    if (!picks.length) h += '<p class="empty">None yet.</p>';
+    picks.sort((a, b) => (N[a].R || "").localeCompare(N[b].R || "") || N[a].n.localeCompare(N[b].n));
+    let lastR = null;
+    for (const id of picks) {
+      if (N[id].R !== lastR) { lastR = N[id].R; h += '<h2 class="sec">' + clean(lastR) + '</h2>'; }
+      h += '<button class="row" data-goto="' + id + '"><span class="dot ' + N[id].t + '"></span><span class="nm">' +
+        clean(N[id].n) + '</span></button>';
+    }
+    h += '</div>';
+    $("#tab-build").innerHTML = h;
+
+    // effects tab
+    const agg = new Map();
+    for (const id of alloc) {
+      if (id === START) continue;
+      for (const s of (N[id].s || [])) {
+        const nums = s.match(/\d+(?:\.\d+)?/g) || [];
+        if (nums.length === 1) {
+          const key = s.replace(/\d+(?:\.\d+)?/, "\u0000");
+          const e = agg.get(key) || { v: 0, n: 0, tpl: key, num: true };
+          e.v += parseFloat(nums[0]); e.n++; agg.set(key, e);
+        } else {
+          const e = agg.get(s) || { v: 0, n: 0, tpl: s, num: false };
+          e.n++; agg.set(s, e);
+        }
+      }
+    }
+    const rows = [...agg.values()].sort((a, b) => b.n - a.n || a.tpl.localeCompare(b.tpl));
+    let e = '<h2 class="sec">Combined effects &middot; ' + rows.length + ' lines</h2>';
+    if (!rows.length) e += '<p class="empty">Allocate nodes to see their totals.</p>';
+    for (const r of rows) {
+      if (r.num) {
+        let val = String(Math.round(r.v * 10) / 10);
+        const parts = r.tpl.split("\u0000");
+        let rest = parts[1];
+        if (rest.charAt(0) === "%") { val += "%"; rest = rest.slice(1); }
+        e += '<div class="eff"><span class="v">' + val + '</span><span class="t">' +
+          clean((parts[0] + rest).replace(/^\s+/, "")).replace(/\n/g, " ") + '</span></div>';
+      } else {
+        e += '<div class="eff"><span class="v">' + (r.n > 1 ? "×" + r.n : "•") + '</span><span class="t">' +
+          clean(r.tpl).replace(/\n/g, " ") + '</span></div>';
+      }
+    }
+    $("#tab-effects").innerHTML = e;
+
+    // regions tab
+    let g = "";
+    const regs = Object.keys(REGIONS).sort();
+    for (const r of regs) {
+      const tot = REGIONS[r].ids.filter(i => N[i].t !== "mastery").length;
+      const on = byReg[r] || 0;
+      g += '<button class="row" data-region="' + esc(r) + '"><span class="dot' + (on ? " alloc" : "") + '"></span><span class="nm">' +
+        clean(r) + '</span><span class="ct' + (on ? " on" : "") + '">' + on + "/" + tot + '</span></button>';
+    }
+    $("#regions").innerHTML = g;
+  }
+
+  // delegated panel clicks
+  document.addEventListener("click", ev => {
+    const reg = ev.target.closest("[data-region]");
+    if (reg) { const r = reg.getAttribute("data-region"); if (REGIONS[r]) fitTo(REGIONS[r].bx, 1.6); return; }
+    const go = ev.target.closest("[data-goto]");
+    if (go) {
+      const id = go.getAttribute("data-goto"), n = N[id];
+      highlight = new Set([id]);
+      flyTo(n.x, n.y, Math.max(cam.s, 0.3));
+      return;
+    }
+    const tab = ev.target.closest("[data-tab]");
+    if (tab) {
+      const p = tab.closest(".panel");
+      p.querySelectorAll("[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b === tab)));
+      p.querySelectorAll(".pbody").forEach(b => { b.hidden = b.id !== "tab-" + tab.getAttribute("data-tab"); });
+    }
+  });
+
+  /* ---------- search ---------- */
+  const q = $("#q");
+  q.addEventListener("input", () => {
+    const v = q.value.trim().toLowerCase();
+    if (!v) { highlight = new Set(); $("#results").innerHTML = ""; $("#resHead").textContent = "Results"; draw(); return; }
+    const hits = [];
+    for (const id of IDS) {
+      const n = N[id];
+      const nameHit = n.n && n.n.toLowerCase().includes(v);
+      const statHit = !nameHit && (n.s || []).some(s => s.toLowerCase().includes(v));
+      if (nameHit || statHit) hits.push({ id, rank: (nameHit ? 0 : 1) + (n.t === "keystone" ? -0.3 : n.t === "notable" ? -0.2 : 0) });
+    }
+    hits.sort((a, b) => a.rank - b.rank || N[a.id].n.localeCompare(N[b.id].n));
+    highlight = new Set(hits.map(h => h.id));
+    $("#resHead").textContent = "Results · " + hits.length;
+    $("#results").innerHTML = hits.slice(0, 60).map(h => {
+      const n = N[h.id];
+      return '<button class="row" data-goto="' + h.id + '"><span class="dot ' + n.t + (alloc.has(h.id) ? " alloc" : "") +
+        '"></span><span class="nm">' + clean(n.n || "Atlas Start") + '<br><span style="color:#5d6578;font-size:10.5px">' +
+        clean(n.R || "") + "</span></span></button>";
+    }).join("") + (hits.length > 60 ? '<p class="empty">' + (hits.length - 60) + " more&hellip;</p>" : "");
+    draw();
+  });
+
+  /* ---------- buttons ---------- */
+  function setBuild(ids) {
+    alloc.clear(); alloc.add(START);
+    for (const id of ids) if (N[id] && N[id].t !== "mastery") alloc.add(id);
+    recompute(); draw();
+  }
+  $("#loadBuild").addEventListener("click", () => { setBuild(D.build150); toast("Loaded the 150-point build."); });
+  $("#clearBuild").addEventListener("click", () => { setBuild([]); hoverPath = new Set(); draw(); });
+  $("#copyBuild").addEventListener("click", async () => {
+    const txt = [...alloc].filter(i => i !== START).join(",");
+    try { await navigator.clipboard.writeText(txt); toast("Copied " + used() + " node ids."); }
+    catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      toast("Node ids selected — copy with Ctrl+C.");
+      setTimeout(() => ta.remove(), 8000);
+    }
+  });
+  $("#zIn").addEventListener("click", () => { cam.s = Math.min(1.1, cam.s * 1.5); draw(); });
+  $("#zOut").addEventListener("click", () => { cam.s = Math.max(0.018, cam.s / 1.5); draw(); });
+  $("#zFit").addEventListener("click", () => fitTo(D.bounds));
+  $("#zStart").addEventListener("click", () => flyTo(N[START].x, N[START].y, 0.3));
+
+  const panelL = $("#panelL"), panelR = $("#panelR");
+  const narrow = () => window.innerWidth <= 820;
+  $("#closeL").addEventListener("click", () => panelL.classList.add("hidden"));
+  $("#closeR").addEventListener("click", () => panelR.classList.add("hidden"));
+  $("#mNav").addEventListener("click", () => { panelR.classList.add("hidden"); panelL.classList.toggle("hidden"); });
+  $("#mBuild").addEventListener("click", () => { panelL.classList.add("hidden"); panelR.classList.toggle("hidden"); });
+  window.addEventListener("keydown", ev => {
+    if (ev.key === "Escape") { highlight = new Set(); q.value = ""; $("#results").innerHTML = ""; draw(); }
+    if (ev.key === "f" && !/input|textarea/i.test(ev.target.tagName)) { panelL.classList.remove("hidden"); q.focus(); ev.preventDefault(); }
+  });
+
+  /* ---------- go ---------- */
+  window.addEventListener("resize", resize);
+  setBuild(D.build150);
+  if (narrow()) { panelL.classList.add("hidden"); panelR.classList.add("hidden"); }
+  resize();
+  fitTo(D.bounds);
+  $("#loading").hidden = true;
+})();
+</script>
+
+</body></html>
