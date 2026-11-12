@@ -229,7 +229,14 @@ h2.sec:first-child{margin-top:0}
   const arcKey = new Map();
   for (const a of D.arcs) {
     const k = a[0] < a[1] ? a[0] + "|" + a[1] : a[1] + "|" + a[0];
-    arcKey.set(k, { cx: a[3], cy: a[4], r: ORB[a[2]] });
+    // The stored orbit index runs one short: all 35 explicit arcs measure
+    // ORB[i+1] from their centre, not ORB[i]. Trusting it drew each curve up to
+    // 184 units inside its endpoints, leaving the nodes visibly unconnected.
+    // Measure the radius off an endpoint instead — both endpoints are always
+    // equidistant from the stored centre, so this is exact either way.
+    const e = N[a[0]] || N[a[1]];
+    const r = e ? Math.hypot(e.x - a[3], e.y - a[4]) : ORB[a[2]];
+    arcKey.set(k, { cx: a[3], cy: a[4], r: r });
   }
   const EDGES = [];
   const seenEdge = new Set();
