@@ -173,7 +173,8 @@ h2.sec:first-child{margin-top:0}
       <p class="hint">Hover a node for its effects. Click an unallocated node to take the cheapest path to it; click an allocated node to refund it. Scroll to zoom, drag to pan.</p>
       <h2 class="sec">Plan</h2>
       <div class="btnrow">
-        <button class="btn primary" id="loadBuild">Load 150-point build</button>
+        <button class="btn primary" id="shareBuild">Copy share link</button>
+        <button class="btn" id="loadBuild">Load 150-point build</button>
         <button class="btn" id="clearBuild">Clear</button>
         <button class="btn" id="copyBuild">Copy ids</button>
       </div>
@@ -224,6 +225,68 @@ h2.sec:first-child{margin-top:0}
   const ALLOCATABLE = IDS.filter(id => N[id].t !== "mastery");
   const GROUPS = D.groups, ORB = D.orbitRadii, FR = D.frames;
   $("#ptsMax").textContent = MAX;
+
+  /* ---------- share codec ---------- */
+  // The page is static, so a shared build has to travel inside the URL itself.
+  // Index space: every allocatable node bar the start, which is always taken
+  // and so stays implicit. Sorted numerically so it never depends on key order.
+  const SHARE_IDS = ALLOCATABLE.filter(id => id !== START).sort((a, b) => Number(a) - Number(b));
+  const SHARE_IX = new Map(SHARE_IDS.map((id, i) => [id, i]));
+  const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const B64I = {};
+  for (let i = 0; i < 64; i++) B64I[B64[i]] = i;
+
+  // Sorted indices -> gap deltas -> varint, 5 payload bits per character with
+  // the top bit marking "more to come". Neighbouring picks are a character
+  // each, so a full 150-point build is ~160 characters and a few nodes a few.
+  function encodeBuild(ids) {
+    const ix = ids.map(id => SHARE_IX.get(id)).filter(i => i !== undefined).sort((a, b) => a - b);
+    let out = "", prev = -1;
+    for (const i of ix) {
+      let d = i - prev - 1;
+      prev = i;
+      do {
+        const chunk = d & 31;
+        d >>>= 5;
+        out += B64[chunk | (d > 0 ? 32 : 0)];
+      } while (d > 0);
+    }
+    return out;
+  }
+  // Returns null on anything malformed: unknown character, out-of-range index,
+  // or a trailing continuation bit (a link truncated by a chat client).
+  function decodeBuild(code) {
+    const ids = [];
+    let prev = -1, d = 0, shift = 0;
+    for (const ch of code) {
+      const v = B64I[ch];
+      if (v === undefined) return null;
+      d += (v & 31) * Math.pow(2, shift);
+      if (v & 32) { shift += 5; continue; }
+      const i = prev + 1 + d;
+      if (i < 0 || i >= SHARE_IDS.length) return null;
+      ids.push(SHARE_IDS[i]);
+      prev = i; d = 0; shift = 0;
+    }
+    return shift ? null : ids;
+  }
+
+  // Match any b= payload rather than only well-formed ones, so a corrupted
+  // link is reported to the viewer instead of silently ignored.
+  const parseHash = () => /[#&]b=([^&]*)/.exec(location.hash || "");
+  const buildCode = () => encodeBuild([...alloc].filter(id => id !== START));
+  const shareUrl = () => {
+    const code = buildCode();
+    return location.href.split("#")[0] + (code ? "#b=" + code : "");
+  };
+  // Keep the address bar shareable without stacking history entries.
+  function syncHash() {
+    const code = buildCode();
+    const want = code ? "#b=" + code : "";
+    if (location.hash === want) return;
+    try { history.replaceState(null, "", want || location.href.split("#")[0]); }
+    catch (e) { /* sandboxed frames and file:// reject replaceState */ }
+  }
 
   // undirected edge list, de-duplicated; arcs flagged
   const arcKey = new Map();
@@ -307,6 +370,7 @@ h2.sec:first-child{margin-top:0}
     }
     for (const a of alloc) for (const v of (ADJ[a] || [])) if (!alloc.has(v)) frontier.add(v);
     renderPanels();
+    syncHash();
   }
   const pathTo = id => {
     const p = [];
@@ -768,16 +832,30 @@ h2.sec:first-child{margin-top:0}
   }
   $("#loadBuild").addEventListener("click", () => { setBuild(D.build150); toast("Loaded the 150-point build."); });
   $("#clearBuild").addEventListener("click", () => { setBuild([]); hoverPath = new Set(); draw(); });
-  $("#copyBuild").addEventListener("click", async () => {
-    const txt = [...alloc].filter(i => i !== START).join(",");
-    try { await navigator.clipboard.writeText(txt); toast("Copied " + used() + " node ids."); }
-    catch (e) {
-      const ta = document.createElement("textarea");
-      ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
-      document.body.appendChild(ta); ta.select();
-      toast("Node ids selected — copy with Ctrl+C.");
-      setTimeout(() => ta.remove(), 8000);
-    }
+  // navigator.clipboard needs a secure context; fall back to a selected
+  // textarea on plain http or where permission is refused.
+  async function copyText(txt, okMsg, fallbackMsg) {
+    try { await navigator.clipboard.writeText(txt); toast(okMsg); return; }
+    catch (e) { /* fall through */ }
+    const ta = document.createElement("textarea");
+    ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    toast(fallbackMsg);
+    setTimeout(() => ta.remove(), 8000);
+  }
+  $("#shareBuild").addEventListener("click", () => {
+    const n = used();
+    if (!n) { toast("Allocate some nodes first."); return; }
+    copyText(shareUrl(),
+      "Share link copied — " + n + " point" + (n > 1 ? "s" : "") + ".",
+      "Share link selected — copy with Ctrl+C.");
+  });
+  $("#copyBuild").addEventListener("click", () => {
+    const n = used();
+    if (!n) { toast("Allocate some nodes first."); return; }
+    copyText([...alloc].filter(i => i !== START).join(","),
+      "Copied " + n + " node ids.",
+      "Node ids selected — copy with Ctrl+C.");
   });
   $("#zIn").addEventListener("click", () => { cam.s = Math.min(1.1, cam.s * 1.5); draw(); });
   $("#zOut").addEventListener("click", () => { cam.s = Math.max(0.018, cam.s / 1.5); draw(); });
@@ -795,13 +873,33 @@ h2.sec:first-child{margin-top:0}
     if (ev.key === "f" && !/input|textarea/i.test(ev.target.tagName)) { panelL.classList.remove("hidden"); q.focus(); ev.preventDefault(); }
   });
 
+  // Someone may paste a different link into the address bar. replaceState does
+  // not fire hashchange, so this only ever sees a real navigation.
+  window.addEventListener("hashchange", () => {
+    const m = parseHash();
+    if (!m) return;
+    const ids = decodeBuild(m[1]);
+    if (!ids) { toast("That share link was not recognised."); return; }
+    if (encodeBuild(ids) === buildCode()) return;
+    if (ids.length > MAX) ids.length = MAX;
+    setBuild(ids);
+    hoverPath = new Set();
+    draw();
+    toast("Loaded a shared build — " + used() + " points.");
+  });
+
   /* ---------- go ---------- */
   window.addEventListener("resize", resize);
-  setBuild([]);
+  const hashMatch = parseHash();
+  const shared = hashMatch ? decodeBuild(hashMatch[1]) : null;
+  if (shared && shared.length > MAX) shared.length = MAX;
+  setBuild(shared || []);
   if (narrow()) { panelL.classList.add("hidden"); panelR.classList.add("hidden"); }
   resize();
   fitTo(D.bounds);
   $("#loading").hidden = true;
+  if (shared && shared.length) toast("Loaded a shared build — " + used() + " points.");
+  else if (hashMatch && !shared) toast("That share link was not recognised.");
 })();
 </script>
 

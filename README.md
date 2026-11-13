@@ -48,6 +48,7 @@ than run through Jekyll.
 | Scroll / pinch | Zoom |
 | Drag | Pan |
 | Double-click | Zoom in on that point |
+| **Copy share link** | Copies a URL carrying your current allocation |
 | <kbd>f</kbd> | Focus the search box |
 | <kbd>Esc</kbd> | Clear search and highlights |
 
@@ -62,6 +63,22 @@ counter flashes.
 The tree **starts empty** — only the start node is allocated, so you can plan
 from scratch. **Load 150-point build** fills in the build documented below, and
 **Clear** empties it again.
+
+## Sharing a build
+
+**Copy share link** puts a URL on your clipboard that carries the whole
+allocation, so anyone opening it sees your exact tree. The address bar also
+stays in step as you click, so you can just copy it from there.
+
+Nothing is uploaded and no account or server is involved — the build travels
+inside the link's `#b=` fragment, which never leaves the browser. A full
+150-point build is about 150 characters, short enough to paste into chat
+without being shortened or wrapped.
+
+The encoding maps each allocatable node to an index, sorts them, and writes the
+gaps as base64url varints at 5 bits per character, so adjacent picks cost one
+character each. A corrupted or truncated link is detected rather than silently
+loading a wrong tree: the viewer says so and opens empty instead.
 
 ## Data
 
